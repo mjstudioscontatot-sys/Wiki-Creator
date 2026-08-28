@@ -232,16 +232,18 @@
             if (isExported) return;
             localStorage.setItem('minha_wiki_data', JSON.stringify(state));
             
+            const payload = JSON.stringify({ type: 'SYNC_STATE', state: state });
+
             // SINCRONIZAÇÃO BIDIRECIONAL:
             // Se for Host, envia a alteração para todos os Clientes conectados
             if (isHost && connections.length > 0) {
                 connections.forEach(conn => {
-                    if (conn.open) conn.send({ type: 'SYNC_STATE', state: state });
+                    if (conn && conn.open) conn.send(payload);
                 });
             } 
             // Se for Cliente, envia a alteração feita para o Host (que redistribuirá ou salvará)
             else if (!isHost && hostConnection && hostConnection.open) {
-                hostConnection.send({ type: 'UPDATE_STATE', state: state });
+                hostConnection.send(JSON.stringify({ type: 'UPDATE_STATE', state: state }));
             }
         }
 
@@ -278,33 +280,43 @@
         }
 
         function handleIncomingConnection(conn) {
+            let isAccepted = false;
+
+            // Escutamos os dados protegidos para não perder pacotes
+            conn.on('data', (raw) => {
+                if (!isAccepted) return;
+                try {
+                    const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                    if (data.type === 'UPDATE_STATE') {
+                        state = data.state;
+                        localStorage.setItem('minha_wiki_data', JSON.stringify(state));
+                        renderApp();
+                        
+                        // Redistribui para os outros clientes se houver mais de um conectado
+                        const payload = JSON.stringify({ type: 'SYNC_STATE', state: state });
+                        connections.forEach(c => {
+                            if (c !== conn && c.open) c.send(payload);
+                        });
+                    }
+                } catch(e) { console.error("Erro de sincronização P2P:", e); }
+            });
+
             showModal({
                 type: 'confirm',
                 title: 'Novo Colaborador',
                 desc: `Um usuário está tentando se conectar à sua Wiki. Deseja aceitar o acesso completo?`,
                 confirmText: 'Aceitar',
                 onConfirm: () => {
+                    isAccepted = true;
                     connections.push(conn);
                     updateP2PStatus(true, `Conectado (${connections.length} peer${connections.length > 1 ? 's' : ''})`);
                     
+                    const payload = JSON.stringify({ type: 'SYNC_STATE', state: state });
                     if (conn.open) {
-                        conn.send({ type: 'SYNC_STATE', state: state });
+                        conn.send(payload);
                     } else {
-                        conn.on('open', () => conn.send({ type: 'SYNC_STATE', state: state }));
+                        conn.on('open', () => conn.send(payload));
                     }
-
-                    // O Host recebe dados enviados pelo Cliente
-                    conn.on('data', (data) => {
-                        if (data.type === 'UPDATE_STATE') {
-                            state = data.state;
-                            localStorage.setItem('minha_wiki_data', JSON.stringify(state));
-                            renderApp();
-                            // Reenvia para os outros clientes se houver mais de um conectado
-                            connections.forEach(c => {
-                                if (c !== conn && c.open) c.send({ type: 'SYNC_STATE', state: state });
-                            });
-                        }
-                    });
 
                     conn.on('close', () => {
                         connections = connections.filter(c => c !== conn);
@@ -346,13 +358,16 @@
                 showModal({type: 'alert', title: 'Sucesso!', desc: 'Conectado com sucesso à Wiki do Host!'});
             });
 
-            // O Cliente recebe dados atualizados do Host
-            conn.on('data', (data) => {
-                if (data.type === 'SYNC_STATE') {
-                    state = data.state;
-                    localStorage.setItem('minha_wiki_data', JSON.stringify(state));
-                    renderApp();
-                }
+            // O Cliente recebe dados atualizados do Host de forma blindada
+            conn.on('data', (raw) => {
+                try {
+                    const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                    if (data.type === 'SYNC_STATE') {
+                        state = data.state;
+                        localStorage.setItem('minha_wiki_data', JSON.stringify(state));
+                        renderApp();
+                    }
+                } catch(e) { console.error("Erro de sincronização P2P:", e); }
             });
 
             conn.on('close', () => {
@@ -511,10 +526,11 @@
                 titleSpan.innerText = foundChannel.name;
                 headerIcon.className = foundChannel.hidden ? "fas fa-eye-slash text-yellow-500 mr-2" : "fas fa-hashtag text-gray-500 mr-2";
                 
-                if (isEditMode) {
-                    contentDiv.innerHTML = foundChannel.content;
-                } else {
-                    contentDiv.innerHTML = parseHashtagsToLinks(foundChannel.content);
+                const newHtml = isEditMode ? foundChannel.content : parseHashtagsToLinks(foundChannel.content || '');
+                
+                // Só atualiza o DOM se o conteúdo de fato mudou, evitando roubar o foco do cursor de quem estiver digitando
+                if (contentDiv.innerHTML !== newHtml) {
+                    contentDiv.innerHTML = newHtml;
                 }
             } else {
                 titleSpan.innerText = "Selecione um canal";
@@ -524,6 +540,7 @@
         }
 
         function parseHashtagsToLinks(html) {
+            if (!html) return '';
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = html;
 
