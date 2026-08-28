@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minha Wiki Colaborativa</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome para Ícones -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- PeerJS para WebRTC P2P (LAN/VPN) -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            900: '#0B1120',
+                            800: '#111827',
+                            700: '#1F2937',
+                            600: '#374151',
+                            blue: '#2563EB',
+                            hover: '#3B82F6'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0B1120; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4B5563; }
+
+        .wiki-content { min-height: 200px; outline: none; }
+        .wiki-content img { max-width: 100%; height: auto; border-radius: 8px; margin: 10px 0; cursor: move; }
+        .wiki-content h1 { font-size: 2em; font-weight: bold; margin-bottom: 0.5em; }
+        .wiki-content h2 { font-size: 1.5em; font-weight: bold; margin-bottom: 0.5em; }
+        .wiki-content p { margin-bottom: 1em; }
+        .wiki-content ul { list-style-type: disc; margin-left: 20px; margin-bottom: 1em; }
+        
+        .hashtag-link { color: #60A5FA; font-weight: 600; cursor: pointer; text-decoration: none; transition: color 0.2s; }
+        .hashtag-link:hover { color: #93C5FD; text-decoration: underline; }
+        
+        [draggable="true"] { cursor: grab; }
+        [draggable="true"]:active { cursor: grabbing; }
+        
+        .drag-over { background-color: rgba(59, 130, 246, 0.2) !important; border-radius: 0.375rem; }
+    </style>
+</head>
+<body class="bg-brand-900 text-gray-200 h-screen w-screen overflow-hidden flex font-sans antialiased">
+
+    <!-- Menu Lateral -->
+    <aside id="sidebar" class="bg-brand-800 w-72 flex-shrink-0 flex flex-col h-full border-r border-brand-700 absolute md:relative z-40 transform -translate-x-full md:translate-x-0 transition-transform duration-300">
+        <div class="h-14 flex items-center justify-between px-4 border-b border-brand-700 shadow-sm">
+            <h1 class="font-bold text-lg truncate flex-1 text-white">Guia da Wiki</h1>
+            <button onclick="toggleSidebar()" class="md:hidden text-gray-400 hover:text-white ml-2">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <div id="channels-container" class="flex-1 overflow-y-auto p-3 space-y-4">
+            <!-- Renderizado via JS -->
+        </div>
+
+        <div id="add-category-btn-container" class="p-4 bg-brand-800 border-t border-brand-700 hidden">
+            <button onclick="promptAddCategory()" class="w-full py-2 bg-brand-700 hover:bg-brand-600 text-sm font-semibold rounded-md transition flex items-center justify-center gap-2">
+                <i class="fas fa-folder-plus"></i> Nova Categoria
+            </button>
+        </div>
+    </aside>
+
+    <!-- Overlay Mobile -->
+    <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black bg-opacity-50 z-30 hidden md:hidden"></div>
+
+    <!-- Área Principal -->
+    <main class="flex-1 flex flex-col h-full min-w-0 bg-brand-900 relative">
+        <!-- Top Bar -->
+        <header class="h-14 flex items-center justify-between px-4 border-b border-brand-700 bg-brand-900 z-10 shadow-sm">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleSidebar()" class="md:hidden text-gray-400 hover:text-white">
+                    <i class="fas fa-bars text-xl"></i>
+                </button>
+                <div class="flex items-center text-gray-300 font-semibold text-lg">
+                    <i id="header-channel-icon" class="fas fa-hashtag text-gray-500 mr-2"></i>
+                    <span id="current-channel-name">início</span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <!-- Status P2P -->
+                <div id="p2p-status-badge" class="hidden text-xs bg-green-900 text-green-300 px-2.5 py-1 rounded-full flex items-center gap-1.5 font-medium">
+                    <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span> <span id="p2p-status-text">Conectado P2P</span>
+                </div>
+
+                <!-- Engrenagem -->
+                <div id="gear-container" class="relative">
+                    <button onclick="toggleGearMenu()" id="gear-btn" class="text-gray-400 hover:text-white p-2 rounded hover:bg-brand-700 transition">
+                        <i class="fas fa-cog text-lg"></i>
+                    </button>
+                    
+                    <div id="gear-dropdown" class="hidden absolute right-0 mt-2 w-56 bg-brand-800 rounded-md shadow-lg border border-brand-700 py-1 z-50">
+                        <button id="btn-toggle-edit" onclick="handleEditToggle()" class="w-full text-left px-4 py-2 text-sm hover:bg-brand-700 flex items-center gap-2">
+                            <i class="fas fa-lock-open w-4"></i> <span id="text-toggle-edit">Ativar Edição</span>
+                        </button>
+                        <button onclick="openCollabMenu()" class="w-full text-left px-4 py-2 text-sm hover:bg-brand-700 flex items-center gap-2 text-blue-400">
+                            <i class="fas fa-network-wired w-4"></i> Modo Colaboração (LAN)
+                        </button>
+                        <button onclick="exportProject()" class="w-full text-left px-4 py-2 text-sm hover:bg-brand-700 flex items-center gap-2 text-green-400">
+                            <i class="fas fa-file-export w-4"></i> Exportar HTML
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Barra Inferior para Entrar via Código P2P -->
+        <div id="collab-join-bar" class="bg-brand-800 border-b border-brand-700 px-4 py-2 flex items-center justify-between gap-2 shadow-md hidden z-20">
+            <div class="flex items-center gap-2 text-sm flex-1 max-w-xl">
+                <i class="fas fa-plug text-blue-400"></i>
+                <span class="text-gray-300 font-medium whitespace-nowrap">Entrar na Wiki:</span>
+                <input type="text" id="join-peer-code" placeholder="Cole o código do host aqui..." class="bg-brand-900 border border-brand-600 rounded px-3 py-1 text-white text-sm w-full focus:outline-none focus:border-brand-blue">
+            </div>
+            <div class="flex gap-2">
+                <button onclick="connectToHost()" class="px-3 py-1 bg-brand-blue hover:bg-brand-hover text-white text-sm font-semibold rounded transition">Conectar</button>
+                <button onclick="document.getElementById('collab-join-bar').classList.add('hidden')" class="text-gray-400 hover:text-white px-2"><i class="fas fa-times"></i></button>
+            </div>
+        </div>
+
+        <!-- Barra de Ferramentas de Edição -->
+        <div id="editor-toolbar" class="hidden bg-brand-800 border-b border-brand-700 p-2 flex gap-2 items-center px-4 overflow-x-auto">
+            <button onclick="formatDoc('bold')" class="p-2 rounded bg-brand-700 hover:bg-brand-600 text-gray-200" title="Negrito"><i class="fas fa-bold"></i></button>
+            <button onclick="formatDoc('italic')" class="p-2 rounded bg-brand-700 hover:bg-brand-600 text-gray-200" title="Itálico"><i class="fas fa-italic"></i></button>
+            <button onclick="formatDoc('formatBlock', 'H1')" class="p-2 rounded bg-brand-700 hover:bg-brand-600 text-gray-200 font-bold" title="Título 1">H1</button>
+            <button onclick="formatDoc('formatBlock', 'H2')" class="p-2 rounded bg-brand-700 hover:bg-brand-600 text-gray-200 font-bold" title="Título 2">H2</button>
+            <button onclick="formatDoc('insertUnorderedList')" class="p-2 rounded bg-brand-700 hover:bg-brand-600 text-gray-200" title="Lista"><i class="fas fa-list-ul"></i></button>
+            <div class="w-px h-6 bg-brand-600 mx-2"></div>
+            <label class="p-2 rounded bg-brand-blue hover:bg-brand-hover text-white cursor-pointer transition flex items-center gap-2" title="Anexar Foto">
+                <i class="fas fa-image"></i> Anexar Foto
+                <input type="file" accept="image/*" class="hidden" onchange="insertImage(event)">
+            </label>
+        </div>
+
+        <!-- Área de Conteúdo -->
+        <div class="flex-1 overflow-y-auto p-6 md:p-10" id="main-scroll-area">
+            <div class="max-w-4xl mx-auto">
+                <div id="editor-content" class="wiki-content text-gray-300 leading-relaxed" oninput="autoSave()">
+                    <!-- Conteúdo renderizado via JS -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modals -->
+    <div id="password-modal" class="fixed inset-0 bg-black bg-opacity-70 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-brand-800 border border-brand-700 rounded-lg p-6 w-full max-w-sm shadow-2xl">
+            <h2 id="password-title" class="text-xl font-bold mb-4 text-white">Digite a Senha</h2>
+            <p id="password-desc" class="text-sm text-gray-400 mb-4">Insira a senha para habilitar o modo de edição.</p>
+            <input type="password" id="password-input" class="w-full p-2 mb-4 bg-brand-900 border border-brand-600 rounded text-white focus:outline-none focus:border-brand-blue" placeholder="Sua senha...">
+            <div class="flex justify-end gap-2">
+                <button onclick="closeModal('password-modal')" class="px-4 py-2 rounded text-gray-300 hover:bg-brand-700">Cancelar</button>
+                <button onclick="submitPassword()" class="px-4 py-2 rounded bg-brand-blue hover:bg-brand-hover text-white font-semibold">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Global -->
+    <div id="global-modal" class="fixed inset-0 bg-black bg-opacity-70 z-[60] hidden flex items-center justify-center p-4">
+        <div class="bg-brand-800 border border-brand-700 rounded-lg p-6 w-full max-w-md shadow-2xl flex flex-col">
+            <h2 id="modal-title" class="text-xl font-bold mb-2 text-white">Título</h2>
+            <p id="modal-desc" class="text-sm text-gray-400 mb-4">Descrição</p>
+            
+            <input type="text" id="modal-input" class="hidden w-full p-2 mb-4 bg-brand-900 border border-brand-600 rounded text-white focus:outline-none focus:border-brand-blue">
+            
+            <div id="modal-actions-list" class="hidden flex-col gap-2 mb-4"></div>
+
+            <div class="flex justify-end gap-2 mt-2" id="modal-footer-buttons">
+                <button id="modal-btn-cancel" onclick="closeGlobalModal()" class="px-4 py-2 rounded text-gray-300 hover:bg-brand-700 hidden">Cancelar</button>
+                <button id="modal-btn-confirm" onclick="confirmGlobalModal()" class="px-4 py-2 rounded bg-brand-blue hover:bg-brand-hover text-white font-semibold hidden">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- ESTADO GLOBAL DA APLICAÇÃO ---
+        let state = {
+            password: null,
+            categories: [
+                {
+                    id: 'cat-1',
+                    name: 'Geral',
+                    channels: [
+                        { 
+                            id: 'ch-1', 
+                            name: 'início', 
+                            hidden: false,
+                            content: '<h1>Bem-vindo à sua nova Wiki Colaborativa!</h1><p>Esta plataforma suporta sincronização P2P (LAN ou VPN). Clique na engrenagem, selecione <strong>Modo Colaboração</strong> para hospedar ou cole um código na barra inferior para se conectar a alguém.</p>' 
+                        },
+                        {
+                            id: 'ch-2',
+                            name: 'regras',
+                            hidden: false,
+                            content: '<h2>Regras da Wiki</h2><ul><li>Qualquer alteração feita por colaboradores sincroniza instantaneamente.</li></ul>'
+                        }
+                    ]
+                }
+            ]
+        };
+
+        let currentChannelId = 'ch-1';
+        let isEditMode = false;
+        let isExported = false;
+        let draggedChannelId = null;
+        let draggedSourceCatId = null;
+
+        // --- VARIÁVEIS WEBRTC P2P ---
+        let peer = null;
+        let peerId = null;
+        let connections = []; // Conexões ativas (se for Host)
+        let hostConnection = null; // Conexão com o Host (se for Cliente)
+        let isHost = false;
+
+        window.onload = () => {
+            if (typeof window.EXPORTED_STATE !== 'undefined') {
+                state = window.EXPORTED_STATE;
+                isExported = true;
+                isEditMode = false;
+                document.getElementById('gear-container').remove(); 
+            } else {
+                const savedData = localStorage.getItem('minha_wiki_data');
+                if (savedData) {
+                    state = JSON.parse(savedData);
+                    let exists = false;
+                    state.categories.forEach(cat => cat.channels.forEach(ch => { if(ch.id === currentChannelId) exists = true; }));
+                    if(!exists && state.categories[0] && state.categories[0].channels[0]) {
+                        currentChannelId = state.categories[0].channels[0].id;
+                    }
+                }
+            }
+            renderApp();
+        };
+
+        function saveToStorage() {
+            if (isExported) return;
+            localStorage.setItem('minha_wiki_data', JSON.stringify(state));
+            
+            // SINCRONIZAÇÃO BIDIRECIONAL:
+            // Se for Host, envia a alteração para todos os Clientes conectados
+            if (isHost && connections.length > 0) {
+                connections.forEach(conn => {
+                    if (conn.open) conn.send({ type: 'SYNC_STATE', state: state });
+                });
+            } 
+            // Se for Cliente, envia a alteração feita para o Host (que redistribuirá ou salvará)
+            else if (!isHost && hostConnection && hostConnection.open) {
+                hostConnection.send({ type: 'UPDATE_STATE', state: state });
+            }
+        }
+
+        // --- SISTEMA WEBRTC ---
+        function openCollabMenu() {
+            document.getElementById('gear-dropdown').classList.add('hidden');
+            
+            if (!peer) {
+                peer = new Peer();
+                peer.on('open', (id) => {
+                    peerId = id;
+                    showHostModal();
+                });
+                peer.on('error', (err) => {
+                    showModal({type: 'alert', title: 'Erro de Conexão P2P', desc: 'Não foi possível inicializar o canal WebRTC: ' + err.type});
+                });
+                peer.on('connection', (conn) => {
+                    handleIncomingConnection(conn);
+                });
+            } else {
+                showHostModal();
+            }
+        }
+
+        function showHostModal() {
+            isHost = true;
+            document.getElementById('collab-join-bar').classList.remove('hidden');
+            
+            showModal({
+                type: 'alert',
+                title: 'Modo Colaboração (Host)',
+                desc: `O seu código de conexão P2P foi gerado:\n\n${peerId}\n\nEnvie este código para o seu colega. Quando ele colar o código na barra inferior da página dele, você receberá um pedido de acesso.`
+            });
+        }
+
+        function handleIncomingConnection(conn) {
+            showModal({
+                type: 'confirm',
+                title: 'Novo Colaborador',
+                desc: `Um usuário está tentando se conectar à sua Wiki. Deseja aceitar o acesso completo?`,
+                confirmText: 'Aceitar',
+                onConfirm: () => {
+                    connections.push(conn);
+                    updateP2PStatus(true, `Conectado (${connections.length} peer${connections.length > 1 ? 's' : ''})`);
+                    
+                    conn.on('open', () => {
+                        // Envia o estado atual imediatamente para o novo colega
+                        conn.send({ type: 'SYNC_STATE', state: state });
+                    });
+
+                    // O Host recebe dados enviados pelo Cliente
+                    conn.on('data', (data) => {
+                        if (data.type === 'UPDATE_STATE') {
+                            state = data.state;
+                            localStorage.setItem('minha_wiki_data', JSON.stringify(state));
+                            renderApp();
+                            // Reenvia para os outros clientes se houver mais de um conectado
+                            connections.forEach(c => {
+                                if (c !== conn && c.open) c.send({ type: 'SYNC_STATE', state: state });
+                            });
+                        }
+                    });
+
+                    conn.on('close', () => {
+                        connections = connections.filter(c => c !== conn);
+                        if (connections.length === 0) {
+                            updateP2PStatus(false);
+                        } else {
+                            updateP2PStatus(true, `Conectado (${connections.length} peers)`);
+                        }
+                    });
+                }
+            });
+        }
+
+        function connectToHost() {
+            const codeInput = document.getElementById('join-peer-code').value.trim();
+            if (!codeInput) return showModal({type: 'alert', title: 'Aviso', desc: 'Insira o código do Host.'});
+
+            if (!peer) {
+                peer = new Peer();
+                peer.on('open', () => {
+                    executeConnect(codeInput);
+                });
+            } else {
+                executeConnect(codeInput);
+            }
+        }
+
+        function executeConnect(hostId) {
+            showModal({type: 'alert', title: 'Conectando...', desc: 'Estabelecendo conexão segura com o Host...'});
+            
+            const conn = peer.connect(hostId);
+            hostConnection = conn;
+            isHost = false;
+
+            conn.on('open', () => {
+                closeGlobalModal();
+                updateP2PStatus(true, 'Conectado ao Host');
+                document.getElementById('collab-join-bar').classList.add('hidden');
+                showModal({type: 'alert', title: 'Sucesso!', desc: 'Conectado com sucesso à Wiki do Host!'});
+            });
+
+            // O Cliente recebe dados atualizados do Host
+            conn.on('data', (data) => {
+                if (data.type === 'SYNC_STATE') {
+                    state = data.state;
+                    localStorage.setItem('minha_wiki_data', JSON.stringify(state));
+                    renderApp();
+                }
+            });
+
+            conn.on('close', () => {
+                updateP2PStatus(false);
+                showModal({type: 'alert', title: 'Desconectado', desc: 'A conexão com o Host foi encerrada.'});
+            });
+
+            conn.on('error', (err) => {
+                showModal({type: 'alert', title: 'Erro', desc: 'Falha na conexão P2P: ' + err});
+            });
+        }
+
+        function updateP2PStatus(active, text = 'Conectado P2P') {
+            const badge = document.getElementById('p2p-status-badge');
+            const txt = document.getElementById('p2p-status-text');
+            if (active) {
+                txt.innerText = text;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        // --- RENDERIZAÇÃO DA INTERFACE ---
+        function renderApp() {
+            renderSidebar();
+            renderMainContent();
+            updateUIMode();
+        }
+
+        function updateUIMode() {
+            if (isExported) return;
+            
+            const btnToggleEdit = document.getElementById('text-toggle-edit');
+            const iconEdit = document.querySelector('#btn-toggle-edit i');
+            const editorToolbar = document.getElementById('editor-toolbar');
+            const editorContent = document.getElementById('editor-content');
+            const addCatBtn = document.getElementById('add-category-btn-container');
+
+            if (isEditMode) {
+                btnToggleEdit.innerText = "Desativar Edição";
+                iconEdit.className = "fas fa-lock w-4";
+                editorToolbar.classList.remove('hidden');
+                editorContent.setAttribute('contenteditable', 'true');
+                editorContent.classList.add('p-4', 'border', 'border-dashed', 'border-brand-600', 'rounded-lg');
+                addCatBtn.classList.remove('hidden');
+            } else {
+                btnToggleEdit.innerText = "Ativar Edição";
+                iconEdit.className = "fas fa-lock-open w-4";
+                editorToolbar.classList.add('hidden');
+                editorContent.removeAttribute('contenteditable');
+                editorContent.classList.remove('p-4', 'border', 'border-dashed', 'border-brand-600', 'rounded-lg');
+                addCatBtn.classList.add('hidden');
+            }
+        }
+
+        function renderSidebar() {
+            const container = document.getElementById('channels-container');
+            container.innerHTML = '';
+
+            state.categories.forEach(cat => {
+                const visibleChannels = cat.channels.filter(ch => isEditMode || !ch.hidden);
+                if (visibleChannels.length === 0 && !isEditMode) return;
+
+                const catDiv = document.createElement('div');
+                catDiv.className = 'mb-4';
+                
+                if (isEditMode) {
+                    catDiv.setAttribute('ondragover', 'handleDragOver(event)');
+                    catDiv.setAttribute('ondragleave', 'handleDragLeave(event)');
+                    catDiv.setAttribute('ondrop', `handleDrop(event, '${cat.id}')`);
+                }
+
+                const headerDiv = document.createElement('div');
+                headerDiv.className = 'flex items-center justify-between text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 group';
+                
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'flex-1';
+                titleSpan.innerText = cat.name;
+                headerDiv.appendChild(titleSpan);
+
+                if (isEditMode) {
+                    const actionsDiv = document.createElement('div');
+                    actionsDiv.className = 'hidden group-hover:flex gap-2';
+                    
+                    const addChBtn = document.createElement('button');
+                    addChBtn.innerHTML = '<i class="fas fa-plus"></i>';
+                    addChBtn.title = "Adicionar Canal";
+                    addChBtn.className = "hover:text-white";
+                    addChBtn.onclick = () => promptAddChannel(cat.id);
+                    
+                    const editCatBtn = document.createElement('button');
+                    editCatBtn.innerHTML = '<i class="fas fa-pen"></i>';
+                    editCatBtn.title = "Renomear/Excluir Categoria";
+                    editCatBtn.className = "hover:text-white";
+                    editCatBtn.onclick = () => promptEditCategory(cat.id);
+
+                    actionsDiv.appendChild(addChBtn);
+                    actionsDiv.appendChild(editCatBtn);
+                    headerDiv.appendChild(actionsDiv);
+                }
+                catDiv.appendChild(headerDiv);
+
+                const ul = document.createElement('ul');
+                ul.className = 'space-y-0.5';
+
+                visibleChannels.forEach(ch => {
+                    const li = document.createElement('li');
+                    const isSelected = ch.id === currentChannelId;
+                    const hiddenClasses = ch.hidden ? 'opacity-60 italic border-l-2 border-yellow-600' : '';
+                    
+                    li.className = `group flex items-center justify-between px-2 py-1.5 rounded cursor-pointer transition-colors ${isSelected ? 'bg-brand-600 text-white' : 'text-gray-400 hover:bg-brand-700 hover:text-gray-200'} ${hiddenClasses}`;
+                    
+                    if (isEditMode) {
+                        li.setAttribute('draggable', 'true');
+                        li.setAttribute('ondragstart', `handleDragStart(event, '${ch.id}', '${cat.id}')`);
+                    }
+
+                    const nameDiv = document.createElement('div');
+                    nameDiv.className = 'flex-1 truncate flex items-center gap-2';
+                    const iconClass = ch.hidden ? 'fa-eye-slash text-yellow-500' : 'fa-hashtag text-gray-500';
+                    nameDiv.innerHTML = `<i class="fas ${iconClass}"></i> ${ch.name}`;
+                    nameDiv.onclick = () => selectChannel(ch.id);
+
+                    li.appendChild(nameDiv);
+
+                    if (isEditMode) {
+                        const editChBtn = document.createElement('button');
+                        editChBtn.innerHTML = '<i class="fas fa-cog"></i>';
+                        editChBtn.className = "hidden group-hover:block text-gray-400 hover:text-white px-1";
+                        editChBtn.onclick = (e) => { e.stopPropagation(); promptEditChannel(ch.id, cat.id); };
+                        li.appendChild(editChBtn);
+                    }
+
+                    ul.appendChild(li);
+                });
+
+                catDiv.appendChild(ul);
+                container.appendChild(catDiv);
+            });
+        }
+
+        function renderMainContent() {
+            let foundChannel = null;
+            state.categories.forEach(cat => {
+                cat.channels.forEach(ch => {
+                    if (ch.id === currentChannelId) foundChannel = ch;
+                });
+            });
+
+            const contentDiv = document.getElementById('editor-content');
+            const titleSpan = document.getElementById('current-channel-name');
+            const headerIcon = document.getElementById('header-channel-icon');
+
+            if (foundChannel) {
+                titleSpan.innerText = foundChannel.name;
+                headerIcon.className = foundChannel.hidden ? "fas fa-eye-slash text-yellow-500 mr-2" : "fas fa-hashtag text-gray-500 mr-2";
+                
+                if (isEditMode) {
+                    contentDiv.innerHTML = foundChannel.content;
+                } else {
+                    contentDiv.innerHTML = parseHashtagsToLinks(foundChannel.content);
+                }
+            } else {
+                titleSpan.innerText = "Selecione um canal";
+                headerIcon.className = "fas fa-hashtag text-gray-500 mr-2";
+                contentDiv.innerHTML = "<p>Canal não encontrado.</p>";
+            }
+        }
+
+        function parseHashtagsToLinks(html) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+
+            const walk = document.createTreeWalker(tempDiv, NodeFilter.SHOW_TEXT, null, false);
+            const textNodes = [];
+            let node;
+            while(node = walk.nextNode()) {
+                textNodes.push(node);
+            }
+
+            const regex = /#([\wÀ-ÿ-]+)/g;
+
+            textNodes.forEach(textNode => {
+                const text = textNode.nodeValue;
+                if (regex.test(text)) {
+                    const span = document.createElement('span');
+                    span.innerHTML = text.replace(regex, (match, channelName) => {
+                        return `<a href="#" onclick="goToChannelByName('${channelName.toLowerCase()}'); return false;" class="hashtag-link">${match}</a>`;
+                    });
+                    textNode.parentNode.replaceChild(span, textNode);
+                }
+            });
+
+            return tempDiv.innerHTML;
+        }
+
+        function goToChannelByName(channelName) {
+            let targetId = null;
+            const searchName = channelName.trim().toLowerCase();
+            
+            for (let cat of state.categories) {
+                for (let ch of cat.channels) {
+                    if (ch.name.toLowerCase() === searchName) {
+                        targetId = ch.id;
+                        break;
+                    }
+                }
+                if (targetId) break;
+            }
+
+            if (targetId) {
+                selectChannel(targetId);
+                if(window.innerWidth < 768) toggleSidebar();
+            } else {
+                showModal({type: 'alert', title: 'Não Encontrado', desc: `Canal #${channelName} não encontrado.`});
+            }
+        }
+
+        function formatDoc(command, value = null) {
+            if (!isEditMode) return;
+            document.execCommand(command, false, value);
+            document.getElementById('editor-content').focus();
+            autoSave();
+        }
+
+        function insertImage(event) {
+            if (!isEditMode) return;
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const dataUrl = e.target.result;
+                document.getElementById('editor-content').focus();
+                document.execCommand('insertImage', false, dataUrl);
+                autoSave();
+            };
+            reader.readAsDataURL(file);
+            event.target.value = '';
+        }
+
+        function autoSave() {
+            if (!isEditMode) return;
+            let foundChannel = null;
+            state.categories.forEach(cat => {
+                const ch = cat.channels.find(c => c.id === currentChannelId);
+                if (ch) foundChannel = ch;
+            });
+            if (foundChannel) {
+                foundChannel.content = document.getElementById('editor-content').innerHTML;
+                saveToStorage();
+            }
+        }
+
+        function selectChannel(id) {
+            if(isEditMode) autoSave();
+            currentChannelId = id;
+            renderApp();
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            sidebar.classList.toggle('-translate-x-full');
+            overlay.classList.toggle('hidden');
+        }
+
+        function toggleGearMenu() {
+            const menu = document.getElementById('gear-dropdown');
+            menu.classList.toggle('hidden');
+        }
+
+        window.onclick = function(event) {
+            if (!event.target.closest('#gear-container')) {
+                document.getElementById('gear-dropdown').classList.add('hidden');
+            }
+        }
+
+        function handleEditToggle() {
+            document.getElementById('gear-dropdown').classList.add('hidden');
+            
+            if (isEditMode) {
+                autoSave();
+                isEditMode = false;
+                renderApp();
+            } else {
+                const modalTitle = document.getElementById('password-title');
+                const modalDesc = document.getElementById('password-desc');
+                
+                if (!state.password) {
+                    modalTitle.innerText = "Criar Senha de Edição";
+                    modalDesc.innerText = "Esta Wiki não possui senha. Crie uma agora para proteger suas edições.";
+                } else {
+                    modalTitle.innerText = "Digite a Senha";
+                    modalDesc.innerText = "Insira a senha criada anteriormente para editar a Wiki.";
+                }
+                
+                document.getElementById('password-input').value = '';
+                document.getElementById('password-modal').classList.remove('hidden');
+                document.getElementById('password-input').focus();
+            }
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+
+        // BUG CORRIGIDO AQUI: A função agora utiliza .trim() para evitar que os usuários sejam prejudicados 
+        // por espaços vazios invisíveis, além de fazer a conferência exata entre Strings para driblar problemas com o LocalStorage.
+        function submitPassword() {
+            const input = document.getElementById('password-input').value.trim();
+            
+            if (!input) return showModal({type: 'alert', title: 'Erro', desc: "A senha não pode ser vazia."});
+
+            if (!state.password) {
+                state.password = input;
+                saveToStorage();
+                showModal({type: 'alert', title: 'Sucesso', desc: "Senha definida com sucesso!"});
+                isEditMode = true;
+                closeModal('password-modal');
+                renderApp();
+            } else {
+                if (input === String(state.password).trim()) {
+                    isEditMode = true;
+                    closeModal('password-modal');
+                    renderApp();
+                } else {
+                    showModal({type: 'alert', title: 'Erro', desc: "Senha incorreta!"});
+                }
+            }
+        }
+
+        document.getElementById('password-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') submitPassword();
+        });
+
+        // --- SISTEMA GLOBAL DE MODALS ---
+        let currentModalState = { type: '', onConfirm: null, onCancel: null };
+
+        function showModal(config) {
+            document.getElementById('modal-title').innerText = config.title || 'Aviso';
+            document.getElementById('modal-desc').innerText = config.desc || '';
+            
+            const input = document.getElementById('modal-input');
+            const actionsList = document.getElementById('modal-actions-list');
+            const btnCancel = document.getElementById('modal-btn-cancel');
+            const btnConfirm = document.getElementById('modal-btn-confirm');
+            
+            input.classList.add('hidden');
+            actionsList.classList.add('hidden');
+            btnCancel.classList.add('hidden');
+            btnConfirm.classList.add('hidden');
+            actionsList.innerHTML = '';
+            
+            currentModalState.onConfirm = config.onConfirm;
+            currentModalState.onCancel = config.onCancel;
+            currentModalState.type = config.type;
+
+            if (config.type === 'alert') {
+                btnConfirm.innerText = 'OK';
+                btnConfirm.classList.remove('hidden');
+                btnConfirm.className = "px-4 py-2 rounded bg-brand-blue hover:bg-brand-hover text-white font-semibold";
+            } 
+            else if (config.type === 'confirm') {
+                btnCancel.innerText = 'Cancelar';
+                btnCancel.classList.remove('hidden');
+                btnConfirm.innerText = config.confirmText || 'Confirmar';
+                btnConfirm.classList.remove('hidden');
+                btnConfirm.className = config.danger ? "px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white font-semibold" : "px-4 py-2 rounded bg-brand-blue hover:bg-brand-hover text-white font-semibold";
+            }
+            else if (config.type === 'prompt') {
+                input.classList.remove('hidden');
+                input.value = config.defaultVal || '';
+                input.placeholder = config.placeholder || '';
+                btnCancel.innerText = 'Cancelar';
+                btnCancel.classList.remove('hidden');
+                btnConfirm.innerText = 'Confirmar';
+                btnConfirm.classList.remove('hidden');
+                btnConfirm.className = "px-4 py-2 rounded bg-brand-blue hover:bg-brand-hover text-white font-semibold";
+                setTimeout(() => input.focus(), 100);
+            }
+            else if (config.type === 'actions') {
+                actionsList.classList.remove('hidden');
+                actionsList.classList.add('flex');
+                config.actions.forEach(action => {
+                    const btn = document.createElement('button');
+                    btn.className = `w-full text-left px-4 py-2 rounded flex items-center gap-2 transition-colors ${action.danger ? 'text-red-400 hover:bg-red-900/30' : 'text-gray-200 hover:bg-brand-700'}`;
+                    btn.innerHTML = `<i class="fas ${action.icon} w-5"></i> ${action.label}`;
+                    btn.onclick = () => {
+                        closeGlobalModal();
+                        if(action.onClick) action.onClick();
+                    };
+                    actionsList.appendChild(btn);
+                });
+                btnCancel.innerText = 'Cancelar';
+                btnCancel.classList.remove('hidden');
+            }
+
+            document.getElementById('global-modal').classList.remove('hidden');
+        }
+
+        function closeGlobalModal() {
+            document.getElementById('global-modal').classList.add('hidden');
+            if (currentModalState.onCancel) currentModalState.onCancel();
+        }
+
+        function confirmGlobalModal() {
+            const val = document.getElementById('modal-input').value;
+            closeGlobalModal();
+            if (currentModalState.onConfirm) {
+                if (currentModalState.type === 'prompt') {
+                    currentModalState.onConfirm(val);
+                } else {
+                    currentModalState.onConfirm(true);
+                }
+            }
+        }
+
+        document.getElementById('modal-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') confirmGlobalModal();
+        });
+
+        function generateId() {
+            return Math.random().toString(36).substr(2, 9);
+        }
+
+        function promptAddCategory() {
+            showModal({
+                type: 'prompt',
+                title: 'Nova Categoria',
+                desc: 'Digite o nome da nova categoria:',
+                onConfirm: (name) => {
+                    if (name && name.trim()) {
+                        state.categories.push({ id: 'cat-' + generateId(), name: name.trim(), channels: [] });
+                        saveToStorage();
+                        renderSidebar();
+                    }
+                }
+            });
+        }
+
+        function promptEditCategory(catId) {
+            const cat = state.categories.find(c => c.id === catId);
+            if (!cat) return;
+            
+            showModal({
+                type: 'actions',
+                title: `Categoria: ${cat.name}`,
+                desc: 'O que deseja fazer?',
+                actions: [
+                    {
+                        label: 'Renomear', icon: 'fa-pen', onClick: () => {
+                            showModal({
+                                type: 'prompt', title: 'Renomear', desc: 'Novo nome da categoria:', defaultVal: cat.name,
+                                onConfirm: (newName) => {
+                                    if (newName && newName.trim()) {
+                                        cat.name = newName.trim();
+                                        saveToStorage();
+                                        renderSidebar();
+                                    }
+                                }
+                            });
+                        }
+                    },
+                    {
+                        label: 'Excluir Categoria', icon: 'fa-trash', danger: true, onClick: () => {
+                            showModal({
+                                type: 'confirm', title: 'Atenção', desc: `Deseja excluir "${cat.name}" e todos os seus canais?`, danger: true, confirmText: 'Excluir',
+                                onConfirm: () => {
+                                    state.categories = state.categories.filter(c => c.id !== catId);
+                                    let exists = false;
+                                    state.categories.forEach(c => c.channels.forEach(ch => { if(ch.id === currentChannelId) exists = true; }));
+                                    if (!exists && state.categories[0] && state.categories[0].channels[0]) {
+                                        currentChannelId = state.categories[0].channels[0].id;
+                                    }
+                                    saveToStorage();
+                                    renderApp();
+                                }
+                            });
+                        }
+                    }
+                ]
+            });
+        }
+
+        function formatChannelName(name) {
+            return name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-à-ÿ]/g, '');
+        }
+
+        function promptAddChannel(catId) {
+            showModal({
+                type: 'prompt',
+                title: 'Novo Canal',
+                desc: 'Nome do canal (espaços virarão hifens):',
+                onConfirm: (name) => {
+                    if (name && name.trim()) {
+                        name = formatChannelName(name);
+                        if (!name) return showModal({type: 'alert', title: 'Erro', desc: 'Nome inválido.'});
+                        
+                        const cat = state.categories.find(c => c.id === catId);
+                        if (cat) {
+                            const newCh = { id: 'ch-' + generateId(), name: name, hidden: false, content: `<h1>#${name}</h1><p>Comece a escrever aqui...</p>` };
+                            cat.channels.push(newCh);
+                            currentChannelId = newCh.id;
+                            saveToStorage();
+                            renderApp();
+                        }
+                    }
+                }
+            });
+        }
+
+        function promptEditChannel(chId, catId) {
+            const cat = state.categories.find(c => c.id === catId);
+            const ch = cat.channels.find(c => c.id === chId);
+            if (!ch) return;
+
+            showModal({
+                type: 'actions',
+                title: `Canal: #${ch.name}`,
+                desc: 'Opções do canal:',
+                actions: [
+                    {
+                        label: 'Renomear', icon: 'fa-pen', onClick: () => {
+                            showModal({
+                                type: 'prompt', title: 'Renomear', desc: 'Novo nome (sem # e espaços):', defaultVal: ch.name,
+                                onConfirm: (newName) => {
+                                    if (newName && newName.trim()) {
+                                        newName = formatChannelName(newName);
+                                        if(newName) {
+                                            ch.name = newName;
+                                            saveToStorage();
+                                            renderSidebar();
+                                            if(currentChannelId === chId) renderMainContent(); 
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    },
+                    {
+                        label: ch.hidden ? 'Tornar Visível' : 'Tornar Invisível', 
+                        icon: ch.hidden ? 'fa-eye' : 'fa-eye-slash', 
+                        onClick: () => {
+                            ch.hidden = !ch.hidden;
+                            saveToStorage();
+                            renderApp();
+                        }
+                    },
+                    {
+                        label: 'Excluir Canal', icon: 'fa-trash', danger: true, onClick: () => {
+                            showModal({
+                                type: 'confirm', title: 'Excluir', desc: `Excluir o canal "#${ch.name}"?`, danger: true, confirmText: 'Excluir',
+                                onConfirm: () => {
+                                    cat.channels = cat.channels.filter(c => c.id !== chId);
+                                    if(currentChannelId === chId) {
+                                        currentChannelId = state.categories[0]?.channels[0]?.id || null;
+                                    }
+                                    saveToStorage();
+                                    renderApp();
+                                }
+                            });
+                        }
+                    }
+                ]
+            });
+        }
+
+        function handleDragStart(e, chId, catId) {
+            draggedChannelId = chId;
+            draggedSourceCatId = catId;
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            e.currentTarget.classList.add('drag-over');
+        }
+
+        function handleDragLeave(e) {
+            e.currentTarget.classList.remove('drag-over');
+        }
+
+        function handleDrop(e, targetCatId) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over');
+
+            if (!draggedChannelId || !draggedSourceCatId) return;
+            if (draggedSourceCatId === targetCatId) return; 
+
+            const sourceCat = state.categories.find(c => c.id === draggedSourceCatId);
+            const targetCat = state.categories.find(c => c.id === targetCatId);
+
+            if (sourceCat && targetCat) {
+                const channelIndex = sourceCat.channels.findIndex(c => c.id === draggedChannelId);
+                if (channelIndex > -1) {
+                    const channelObj = sourceCat.channels.splice(channelIndex, 1)[0];
+                    targetCat.channels.push(channelObj);
+                    saveToStorage();
+                    renderSidebar();
+                }
+            }
+            draggedChannelId = null;
+            draggedSourceCatId = null;
+        }
+
+        function exportProject() {
+            document.getElementById('gear-dropdown').classList.add('hidden');
+            
+            showModal({
+                type: 'confirm',
+                title: 'Exportar Wiki',
+                desc: "Isso fará o download de um arquivo HTML com a versão atual da sua Wiki. Este arquivo será 'Somente Leitura' (sem ferramentas de edição). Deseja continuar?",
+                confirmText: 'Exportar',
+                onConfirm: () => {
+                    if(isEditMode) autoSave();
+
+                    const wasEditMode = isEditMode;
+                    isEditMode = false;
+                    renderApp();
+
+                    let htmlContent = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+
+                    const safeState = JSON.stringify(state).replace(/</g, '\\u003c');
+                    const scriptInjecao = `<script>window.EXPORTED_STATE = ${safeState};<\/script>`;
+
+                    htmlContent = htmlContent.replace('</head>', scriptInjecao + '\n</head>');
+
+                    isEditMode = wasEditMode;
+                    if(isEditMode) renderApp();
+
+                    const blob = new Blob([htmlContent], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'minha_wiki_exportada.html';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
