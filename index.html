@@ -153,19 +153,6 @@
         </div>
     </main>
 
-    <!-- Modals -->
-    <div id="password-modal" class="fixed inset-0 bg-black bg-opacity-70 z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-brand-800 border border-brand-700 rounded-lg p-6 w-full max-w-sm shadow-2xl">
-            <h2 id="password-title" class="text-xl font-bold mb-4 text-white">Digite a Senha</h2>
-            <p id="password-desc" class="text-sm text-gray-400 mb-4">Insira a senha para habilitar o modo de edição.</p>
-            <input type="password" id="password-input" class="w-full p-2 mb-4 bg-brand-900 border border-brand-600 rounded text-white focus:outline-none focus:border-brand-blue" placeholder="Sua senha...">
-            <div class="flex justify-end gap-2">
-                <button onclick="closeModal('password-modal')" class="px-4 py-2 rounded text-gray-300 hover:bg-brand-700">Cancelar</button>
-                <button onclick="submitPassword()" class="px-4 py-2 rounded bg-brand-blue hover:bg-brand-hover text-white font-semibold">Confirmar</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Modal Global -->
     <div id="global-modal" class="fixed inset-0 bg-black bg-opacity-70 z-[60] hidden flex items-center justify-center p-4">
         <div class="bg-brand-800 border border-brand-700 rounded-lg p-6 w-full max-w-md shadow-2xl flex flex-col">
@@ -300,17 +287,11 @@
                     connections.push(conn);
                     updateP2PStatus(true, `Conectado (${connections.length} peer${connections.length > 1 ? 's' : ''})`);
                     
-                    <comment-tag id="1">conn.on('open', () => {
-                        // Envia o estado atual imediatamente para o novo colega
+                    if (conn.open) {
                         conn.send({ type: 'SYNC_STATE', state: state });
-                    });</comment-tag id="1" text="O evento de conexão no fundo pode disparar antes de você clicar em 'Aceitar' na tela. Quando isso ocorre, o código não envia a senha/dados para o seu amigo, fazendo com que ele receba 'senha incorreta' ao tentar editar. 
-
-Substitua este bloco por:
-if (conn.open) {
-    conn.send({ type: 'SYNC_STATE', state: state });
-} else {
-    conn.on('open', () => conn.send({ type: 'SYNC_STATE', state: state }));
-}" type="suggestion">
+                    } else {
+                        conn.on('open', () => conn.send({ type: 'SYNC_STATE', state: state }));
+                    }
 
                     // O Host recebe dados enviados pelo Cliente
                     conn.on('data', (data) => {
